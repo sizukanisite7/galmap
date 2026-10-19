@@ -56,3 +56,10 @@ a { color: #1971c2; }
 .modal label.row { flex-direction: row; }
 .actions { display: flex; gap: 8px; }
 @media (min-width: 800px) { .modal-back { align-items: center; } .modal { border-radius: 16px; } }
+
+.results li { display: flex; gap: 10px; align-items: center; }
+.results li.hot { background: #e7f5ff; }
+.results .ico { font-size: 20px; }
+.results { max-height: 40vh; }
+.pin.preview { background: #868e96; }
+.pin.preview.hot { background: #1971c2; transform: rotate(-45deg) scale(1.2); }

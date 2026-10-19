@@ -34,6 +34,11 @@ function FlyTo({ target }: { target: { lat: number; lng: number; k: number } | n
   return null
 }
 
+function MapRefSetter({ mapRef }: { mapRef: React.MutableRefObject<L.Map | null> }) {
+  mapRef.current = useMap()
+  return null
+}
+
 type Sort = 'new' | 'old' | 'title'
 type Editing = Partial<Pin> & { lat: number; lng: number }
 
@@ -55,6 +60,8 @@ export default function MapPage() {
   const [results, setResults] = useState<GeoResult[]>([])
   const [me, setMe] = useState<{ lat: number; lng: number } | null>(null)
   const sub = useRef<ReturnType<typeof subscribeChanges> | null>(null)
+  const mapRef = useRef<L.Map | null>(null)
+  const [hover, setHover] = useState<number | null>(null)
 
   const reload = useCallback(async () => {
     try {
@@ -85,13 +92,25 @@ export default function MapPage() {
     }
   }, [mapId, reload])
 
-  // Debounced address search
+  // As-you-type place search (Photon), biased toward the current map center
   useEffect(() => {
-    if (!place.trim()) return setResults([])
+    if (!place.trim()) {
+      setResults([])
+      return
+    }
+    const ctrl = new AbortController()
     const t = setTimeout(() => {
-      searchPlace(place).then(setResults).catch((e) => setError((e as Error).message))
-    }, 800)
-    return () => clearTimeout(t)
+      const c = mapRef.current?.getCenter()
+      searchPlace(place, c ? { lat: c.lat, lng: c.lng } : null, ctrl.signal)
+        .then(setResults)
+        .catch((e: Error) => {
+          if (e.name !== 'AbortError') setError(e.message)
+        })
+    }, 250)
+    return () => {
+      clearTimeout(t)
+      ctrl.abort()
+    }
   }, [place])
 
   const save = async (pin: PinInput) => {
@@ -125,9 +144,18 @@ export default function MapPage() {
     return true
   }
 
-  const startAdd = (lat: number, lng: number, title = '') => {
+  const startAdd = (lat: number, lng: number, title = '', category?: Category) => {
     if (!needNick()) return
-    setEditing({ lat, lng, title })
+    setEditing({ lat, lng, title, category })
+  }
+
+  const chooseResult = (r: GeoResult) => {
+    setResults([])
+    setPlace('')
+    setHover(null)
+    setTab('map')
+    setFly({ lat: r.lat, lng: r.lng, k: Date.now() })
+    startAdd(r.lat, r.lng, r.name, r.category)
   }
 
   const visible = useMemo(() => {
@@ -212,24 +240,34 @@ export default function MapPage() {
       )}
 
       <div className="searchbar">
-        <input placeholder="場所・住所を検索して追加" value={place} onChange={(e) => setPlace(e.target.value)} />
+        <input
+          placeholder="店名・場所・住所を検索"
+          value={place}
+          onChange={(e) => {
+            setPlace(e.target.value)
+            setTab('map')
+          }}
+        />
         <button onClick={locate}>現在地</button>
         {results.length > 0 && (
           <ul className="results">
             {results.map((r, i) => (
               <li
                 key={i}
-                onClick={() => {
-                  setResults([])
-                  setPlace('')
-                  setTab('map')
+                className={hover === i ? 'hot' : ''}
+                onMouseEnter={() => {
+                  setHover(i)
                   setFly({ lat: r.lat, lng: r.lng, k: Date.now() })
-                  startAdd(r.lat, r.lng, r.name)
                 }}
+                onMouseLeave={() => setHover(null)}
+                onClick={() => chooseResult(r)}
               >
-                <b>{r.name}</b>
-                <br />
-                <small>{r.display}</small>
+                <span className="ico">{r.emoji}</span>
+                <span className="grow">
+                  <b>{r.name}</b>
+                  <br />
+                  <small className="muted">{r.display}</small>
+                </span>
               </li>
             ))}
           </ul>
@@ -243,14 +281,33 @@ export default function MapPage() {
 
       <div className={`content show-${tab}`}>
         <div className="map-area">
-          <MapContainer center={[35.68, 139.76]} zoom={11} style={{ height: '100%', width: '100%' }}>
+          <MapContainer center={[35.68, 139.76]} zoom={11} maxZoom={21} style={{ height: '100%', width: '100%' }}>
             <TileLayer
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
               url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+              maxNativeZoom={19}
+              maxZoom={21}
             />
             <ClickHandler onClick={(lat, lng) => startAdd(lat, lng)} />
             <FlyTo target={fly} />
+            <MapRefSetter mapRef={mapRef} />
             {me && <CircleMarker center={[me.lat, me.lng]} radius={8} pathOptions={{ color: '#1971c2' }} />}
+            {results.map((r, i) => (
+              <Marker
+                key={`r${i}`}
+                position={[r.lat, r.lng]}
+                zIndexOffset={1000}
+                icon={L.divIcon({
+                  className: '',
+                  html: `<div class="pin preview${hover === i ? ' hot' : ''}"><span>${r.emoji}</span></div>`,
+                  iconSize: [32, 32],
+                  iconAnchor: [16, 32],
+                })}
+                eventHandlers={{ click: () => chooseResult(r) }}
+              >
+                <Tooltip>{r.name}</Tooltip>
+              </Marker>
+            ))}
             {visible.map((p) => (
               <Marker
                 key={p.id}
