@@ -1,11 +1,14 @@
 import { createClient } from '@supabase/supabase-js'
 
-const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
-// VITE_SUPABASE_ANON is accepted as an alias: some hosts block saving public vars whose name contains "KEY".
-const key = (import.meta.env.VITE_SUPABASE_ANON_KEY ?? import.meta.env.VITE_SUPABASE_ANON) as string | undefined
+// Injected at build time by vite.config.ts (supports VITE_* and plain SUPABASE_* env names).
+declare const __SUPABASE_URL__: string
+declare const __SUPABASE_ANON_KEY__: string
+
+const url = __SUPABASE_URL__
+const key = __SUPABASE_ANON_KEY__
 
 export const isConfigured = Boolean(url && key)
 
-export const supabase = createClient(url ?? 'http://localhost', key ?? 'missing', {
+export const supabase = createClient(url || 'http://localhost', key || 'missing', {
   auth: { persistSession: false, autoRefreshToken: false },
 })
